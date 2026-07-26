@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
 
@@ -9,10 +9,38 @@ export default function ResetPasswordPage() {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [sessionReady, setSessionReady] = useState(false);
   const router = useRouter();
+
+  useEffect(() => {
+    // Listen for auth state changes when user lands via the email link
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        if (event === 'PASSWORD_RECOVERY' || session) {
+          setSessionReady(true);
+        }
+      }
+    );
+
+    // Fallback check if session is already active
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) {
+        setSessionReady(true);
+      }
+    });
+
+    return () => {
+      authListener?.subscription?.unsubscribe();
+    };
+  }, []);
 
   const handleUpdatePassword = async (e) => {
     e.preventDefault();
+    if (!sessionReady) {
+      setError('Auth session still initializing. Please wait a moment and try again.');
+      return;
+    }
+
     setLoading(true);
     setError('');
     setMessage('');
@@ -36,7 +64,9 @@ export default function ResetPasswordPage() {
     <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
       <div className="bg-white p-8 rounded-xl shadow-md border border-slate-200 max-w-md w-full">
         <h2 className="text-2xl font-bold text-slate-900 text-center mb-2">Set New Password</h2>
-        <p className="text-xs text-slate-500 text-center mb-6">Enter your new secure password below.</p>
+        <p className="text-xs text-slate-500 text-center mb-6">
+          Enter your new secure password below to update your account.
+        </p>
 
         {error && <div className="p-3 bg-red-50 text-red-700 text-xs rounded mb-4">{error}</div>}
         {message && <div className="p-3 bg-green-50 text-green-700 text-xs rounded mb-4">{message}</div>}
@@ -47,6 +77,7 @@ export default function ResetPasswordPage() {
             <input
               type="password"
               required
+              minLength={6}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"
@@ -56,10 +87,10 @@ export default function ResetPasswordPage() {
 
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || !sessionReady}
             className="w-full py-2.5 bg-blue-900 text-white font-semibold rounded-md text-sm hover:bg-blue-800 transition disabled:opacity-50"
           >
-            {loading ? 'Updating...' : 'Update Password'}
+            {loading ? 'Updating...' : !sessionReady ? 'Verifying Session...' : 'Update Password'}
           </button>
         </form>
       </div>
