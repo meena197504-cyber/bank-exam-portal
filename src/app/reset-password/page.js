@@ -17,8 +17,8 @@ export default function ResetPasswordPage() {
     setMessage(null);
 
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/update-password`,
-    });
+      redirectTo: 'https://bank-exam-portal.vercel.app/reset-password',
+});
 
     if (error) {
       setError(error.message);
