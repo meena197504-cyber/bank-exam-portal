@@ -16,65 +16,60 @@ export default function ExamPage() {
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [score, setScore] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [accessDenied, setAccessDenied] = useState(false);
 
   useEffect(() => {
-    fetchExamAndQuestions();
+    if (examId) {
+      verifyAndFetchExam();
+    }
   }, [examId]);
 
-  // Countdown timer logic
   useEffect(() => {
     if (timeLeft === null || isSubmitted) return;
-
     if (timeLeft <= 0) {
       handleSubmitExam();
       return;
     }
-
-    const timer = setInterval(() => {
-      setTimeLeft((prev) => prev - 1);
-    }, 1000);
-
+    const timer = setInterval(() => setTimeLeft((prev) => prev - 1), 1000);
     return () => clearInterval(timer);
   }, [timeLeft, isSubmitted]);
 
-  const fetchExamAndQuestions = async () => {
-    // 1. Check user authentication
+  const verifyAndFetchExam = async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
       router.push('/login');
       return;
     }
 
-    // 2. Fetch Exam Details
-    const { data: examData } = await supabase
-      .from('exams')
-      .select('*, subjects(title)')
-      .eq('id', examId)
-      .single();
+    // 1. Fetch Profile and attempts count
+    const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
+    const { data: results } = await supabase.from('test_results').select('id').eq('user_id', user.id);
+    const { data: examData } = await supabase.from('exams').select('*').eq('id', examId).single();
+
+    // 2. Check access conditions (Subscribed OR Free Exam OR First Test Attempt)
+    const isSubscribed = profile?.is_subscribed || false;
+    const isFreeExam = examData?.is_free || false;
+    const attemptsCount = results?.length || 0;
+
+    if (!isSubscribed && !isFreeExam && attemptsCount >= 1) {
+      setAccessDenied(true);
+      setLoading(false);
+      return;
+    }
+
+    setExam(examData);
+    setTimeLeft(examData ? examData.duration_minutes * 60 : 3600);
 
     // 3. Fetch Questions
-    const { data: qData } = await supabase
-      .from('questions')
-      .select('*')
-      .eq('exam_id', examId);
-
-    if (examData) {
-      setExam(examData);
-      setTimeLeft(examData.duration_minutes * 60);
-    }
-    if (qData) {
-      setQuestions(qData);
-    }
+    const { data: qData } = await supabase.from('questions').select('*').eq('exam_id', examId);
+    if (qData) setQuestions(qData);
 
     setLoading(false);
   };
 
   const handleOptionSelect = (optionKey) => {
     if (isSubmitted) return;
-    setSelectedAnswers((prev) => ({
-      ...prev,
-      [currentIdx]: optionKey,
-    }));
+    setSelectedAnswers((prev) => ({ ...prev, [currentIdx]: optionKey }));
   };
 
   const handleSubmitExam = async () => {
@@ -88,7 +83,6 @@ export default function ExamPage() {
     setScore(finalScore);
     setIsSubmitted(true);
 
-    // Save score and selected answers payload for reviewing solutions
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
@@ -103,7 +97,7 @@ export default function ExamPage() {
         ]);
       }
     } catch (err) {
-      console.error('Error saving test score:', err);
+      console.error('Error saving result:', err);
     }
   };
 
@@ -115,16 +109,25 @@ export default function ExamPage() {
   };
 
   if (loading) {
-    return <div className="flex min-h-screen items-center justify-center font-medium">Loading Exam Portal...</div>;
+    return <div className="flex min-h-screen items-center justify-center font-medium">Verifying Exam Access...</div>;
   }
 
-  if (!exam || questions.length === 0) {
+  if (accessDenied) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen space-y-4">
-        <p className="text-gray-600">No questions found for this exam.</p>
-        <button onClick={() => router.push('/dashboard')} className="px-4 py-2 bg-blue-600 text-white rounded font-medium">
-          Back to Dashboard
-        </button>
+      <div className="flex flex-col items-center justify-center min-h-screen p-6 text-center bg-gray-50">
+        <div className="bg-white p-8 rounded-lg shadow-md border max-w-md space-y-4">
+          <div className="text-4xl">🔒</div>
+          <h2 className="text-2xl font-bold text-gray-800">Test Locked</h2>
+          <p className="text-gray-600 text-sm">
+            You have used your 1 Free Exam attempt. Please subscribe to unlock unlimited mock tests!
+          </p>
+          <button
+            onClick={() => router.push('/dashboard')}
+            className="w-full py-2.5 bg-green-600 text-white font-bold rounded hover:bg-green-700"
+          >
+            Go to Dashboard & Upgrade (₹499)
+          </button>
+        </div>
       </div>
     );
   }
@@ -133,11 +136,10 @@ export default function ExamPage() {
 
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col">
-      {/* Header */}
       <header className="bg-white border-b px-6 py-4 flex justify-between items-center shadow-sm">
         <div>
-          <h1 className="text-xl font-bold text-gray-800">{exam.title}</h1>
-          <p className="text-xs text-gray-500">Subject: {exam.subjects?.title || 'General'}</p>
+          <h1 className="text-xl font-bold text-gray-800">{exam?.title}</h1>
+          <p className="text-xs text-gray-500">Bank Test Series</p>
         </div>
         {!isSubmitted && (
           <div className="bg-red-50 border border-red-200 px-4 py-1.5 rounded-md text-red-600 font-mono font-bold">
@@ -146,24 +148,20 @@ export default function ExamPage() {
         )}
       </header>
 
-      {/* Main Area */}
       <div className="flex-1 max-w-5xl w-full mx-auto p-6 grid md:grid-cols-3 gap-6">
-        
-        {/* Question Area */}
         <div className="md:col-span-2 bg-white rounded-lg p-6 shadow-sm border flex flex-col justify-between">
           {!isSubmitted ? (
             <div>
               <div className="flex justify-between items-center border-b pb-3 mb-4">
                 <span className="font-semibold text-gray-700">Question {currentIdx + 1} of {questions.length}</span>
-                <span className="text-xs bg-gray-100 px-2.5 py-1 rounded text-gray-600">Marks: {currentQuestion.marks || 1}</span>
+                <span className="text-xs bg-gray-100 px-2.5 py-1 rounded text-gray-600">Marks: {currentQuestion?.marks || 1}</span>
               </div>
 
-              <p className="text-gray-800 font-medium text-lg mb-6">{currentQuestion.question_text}</p>
+              <p className="text-gray-800 font-medium text-lg mb-6">{currentQuestion?.question_text}</p>
 
-              {/* Options */}
               <div className="space-y-3">
                 {['A', 'B', 'C', 'D'].map((opt) => {
-                  const optionText = currentQuestion[`option_${opt.toLowerCase()}`];
+                  const optionText = currentQuestion?.[`option_${opt.toLowerCase()}`];
                   const isSelected = selectedAnswers[currentIdx] === opt;
 
                   return (
@@ -183,13 +181,12 @@ export default function ExamPage() {
               </div>
             </div>
           ) : (
-            /* Result Overview */
             <div className="text-center py-8 space-y-4">
               <h2 className="text-2xl font-bold text-gray-800">Test Completed!</h2>
               <div className="text-5xl font-extrabold text-blue-600">
                 {score} / {questions.length}
               </div>
-              <p className="text-sm text-gray-600">Your score has been saved to your dashboard.</p>
+              <p className="text-sm text-gray-600">Your score has been saved.</p>
               <button
                 onClick={() => router.push('/dashboard')}
                 className="mt-4 px-6 py-2.5 bg-blue-600 text-white font-semibold rounded hover:bg-blue-700"
@@ -199,7 +196,6 @@ export default function ExamPage() {
             </div>
           )}
 
-          {/* Navigation Actions */}
           {!isSubmitted && (
             <div className="flex justify-between items-center mt-8 border-t pt-4">
               <button
@@ -229,7 +225,6 @@ export default function ExamPage() {
           )}
         </div>
 
-        {/* Question Palette */}
         <div className="bg-white rounded-lg p-5 shadow-sm border h-fit space-y-4">
           <h3 className="font-bold text-gray-800 text-sm">Question Palette</h3>
           <div className="grid grid-cols-5 gap-2">
@@ -254,17 +249,7 @@ export default function ExamPage() {
               );
             })}
           </div>
-
-          <div className="border-t pt-3 text-xs space-y-2 text-gray-600">
-            <div className="flex items-center gap-2">
-              <span className="w-3 h-3 bg-green-600 rounded-sm inline-block"></span> Answered
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="w-3 h-3 bg-gray-100 border border-gray-300 rounded-sm inline-block"></span> Unanswered
-            </div>
-          </div>
         </div>
-
       </div>
     </div>
   );
