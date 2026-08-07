@@ -7,7 +7,12 @@ import { supabase } from '@/lib/supabase';
 
 export default function SignupPage() {
   const router = useRouter();
-  const [formData, setFormData] = useState({ name: '', email: '', password: '' });
+  const [formData, setFormData] = useState({ 
+    name: '', 
+    email: '', 
+    phone: '', 
+    password: '' 
+  });
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
@@ -27,12 +32,15 @@ export default function SignupPage() {
         email: formData.email,
         password: formData.password,
         options: {
-          data: { full_name: formData.name },
+          // Pass full name and phone number as custom metadata
+          data: { 
+            full_name: formData.name,
+            phone_number: formData.phone,
+          },
         },
       });
 
       if (signUpError) {
-        // Fix: Extracts the string message directly so {} won't display
         setError(signUpError.message || 'Signup failed. Please try again.');
       } else if (data?.session) {
         setMessage('Signup successful! Redirecting...');
@@ -75,6 +83,21 @@ export default function SignupPage() {
               onChange={handleChange}
               className="mt-1 w-full rounded-md border border-gray-300 p-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none"
               placeholder="John Doe"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Mobile Number</label>
+            <input
+              type="tel"
+              name="phone"
+              required
+              pattern="[0-9]{10}"
+              title="Please enter a valid 10-digit mobile number"
+              value={formData.phone}
+              onChange={handleChange}
+              className="mt-1 w-full rounded-md border border-gray-300 p-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none"
+              placeholder="9876543210"
             />
           </div>
 
