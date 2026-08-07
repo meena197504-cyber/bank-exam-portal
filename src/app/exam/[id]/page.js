@@ -38,7 +38,7 @@ export default function ExamPage() {
   }, [timeLeft, isSubmitted]);
 
   const fetchExamAndQuestions = async () => {
-    // 1. Check user login status
+    // 1. Check user authentication
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
       router.push('/login');
@@ -77,7 +77,7 @@ export default function ExamPage() {
     }));
   };
 
-  const handleSubmitExam = () => {
+  const handleSubmitExam = async () => {
     let finalScore = 0;
     questions.forEach((q, index) => {
       if (selectedAnswers[index] === q.correct_option) {
@@ -87,6 +87,23 @@ export default function ExamPage() {
 
     setScore(finalScore);
     setIsSubmitted(true);
+
+    // Save score automatically to test_results table
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        await supabase.from('test_results').insert([
+          {
+            user_id: user.id,
+            exam_id: examId,
+            score: finalScore,
+            total_questions: questions.length,
+          },
+        ]);
+      }
+    } catch (err) {
+      console.error('Error saving test score:', err);
+    }
   };
 
   const formatTime = (seconds) => {
@@ -104,7 +121,7 @@ export default function ExamPage() {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen space-y-4">
         <p className="text-gray-600">No questions found for this exam.</p>
-        <button onClick={() => router.push('/dashboard')} className="px-4 py-2 bg-blue-600 text-white rounded">
+        <button onClick={() => router.push('/dashboard')} className="px-4 py-2 bg-blue-600 text-white rounded font-medium">
           Back to Dashboard
         </button>
       </div>
@@ -115,7 +132,7 @@ export default function ExamPage() {
 
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col">
-      {/* Top Bar */}
+      {/* Header */}
       <header className="bg-white border-b px-6 py-4 flex justify-between items-center shadow-sm">
         <div>
           <h1 className="text-xl font-bold text-gray-800">{exam.title}</h1>
@@ -128,10 +145,10 @@ export default function ExamPage() {
         )}
       </header>
 
-      {/* Main Content Area */}
+      {/* Main Body */}
       <div className="flex-1 max-w-5xl w-full mx-auto p-6 grid md:grid-cols-3 gap-6">
         
-        {/* Left 2 Columns: Question Area */}
+        {/* Question Area */}
         <div className="md:col-span-2 bg-white rounded-lg p-6 shadow-sm border flex flex-col justify-between">
           {!isSubmitted ? (
             <div>
@@ -171,7 +188,7 @@ export default function ExamPage() {
               <div className="text-5xl font-extrabold text-blue-600">
                 {score} / {questions.length}
               </div>
-              <p className="text-sm text-gray-600">Your score has been submitted.</p>
+              <p className="text-sm text-gray-600">Your score has been saved to your dashboard.</p>
               <button
                 onClick={() => router.push('/dashboard')}
                 className="mt-4 px-6 py-2.5 bg-blue-600 text-white font-semibold rounded hover:bg-blue-700"
@@ -181,7 +198,7 @@ export default function ExamPage() {
             </div>
           )}
 
-          {/* Controls */}
+          {/* Nav Actions */}
           {!isSubmitted && (
             <div className="flex justify-between items-center mt-8 border-t pt-4">
               <button
@@ -211,9 +228,9 @@ export default function ExamPage() {
           )}
         </div>
 
-        {/* Right Column: Question Palette */}
+        {/* Question Palette */}
         <div className="bg-white rounded-lg p-5 shadow-sm border h-fit space-y-4">
-          <h3 className="font-bold text-gray-800 text-sm">Question Navigation</h3>
+          <h3 className="font-bold text-gray-800 text-sm">Question Palette</h3>
           <div className="grid grid-cols-5 gap-2">
             {questions.map((_, idx) => {
               const isAnswered = selectedAnswers[idx] !== undefined;
