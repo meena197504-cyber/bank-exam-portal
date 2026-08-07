@@ -1,282 +1,252 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
-import { useRouter, useParams } from 'next/navigation';
 
-export default function ExamEnginePage() {
-  const params = useParams();
-  const examId = params?.id;
+export default function ExamPage() {
+  const { id: examId } = useParams();
   const router = useRouter();
 
-  const [questions, setQuestions] = useState([]);
   const [exam, setExam] = useState(null);
-  const [currentIndex, setCurrentIndex] = useState(0);
+  const [questions, setQuestions] = useState([]);
+  const [currentIdx, setCurrentIdx] = useState(0);
   const [selectedAnswers, setSelectedAnswers] = useState({});
-  const [timeLeft, setTimeLeft] = useState(0);
+  const [timeLeft, setTimeLeft] = useState(null);
   const [isSubmitted, setIsSubmitted] = useState(false);
-  const [result, setResult] = useState(null);
+  const [score, setScore] = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (examId) fetchExamDetails();
+    fetchExamAndQuestions();
   }, [examId]);
 
-  // Timer countdown hook
+  // Countdown timer logic
   useEffect(() => {
-    if (timeLeft <= 0 || isSubmitted) return;
+    if (timeLeft === null || isSubmitted) return;
+
+    if (timeLeft <= 0) {
+      handleSubmitExam();
+      return;
+    }
+
     const timer = setInterval(() => {
-      setTimeLeft((prev) => {
-        if (prev <= 1) {
-          clearInterval(timer);
-          handleSubmitExam();
-          return 0;
-        }
-        return prev - 1;
-      });
+      setTimeLeft((prev) => prev - 1);
     }, 1000);
+
     return () => clearInterval(timer);
   }, [timeLeft, isSubmitted]);
 
-  const fetchExamDetails = async () => {
-    setLoading(true);
-    // Fetch Exam metadata
-    const { data: examData } = await supabase.from('exams').select('*').eq('id', examId).single();
-    if (examData) {
-      setExam(examData);
-      setTimeLeft((examData.duration_minutes || 120) * 60);
+  const fetchExamAndQuestions = async () => {
+    // 1. Check user login status
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      router.push('/login');
+      return;
     }
 
-    // Fetch MCQs for this exam
-    const { data: questionsData } = await supabase.from('questions').select('*').eq('exam_id', examId);
-    setQuestions(questionsData || []);
+    // 2. Fetch Exam Details
+    const { data: examData } = await supabase
+      .from('exams')
+      .select('*, subjects(title)')
+      .eq('id', examId)
+      .single();
+
+    // 3. Fetch Questions
+    const { data: qData } = await supabase
+      .from('questions')
+      .select('*')
+      .eq('exam_id', examId);
+
+    if (examData) {
+      setExam(examData);
+      setTimeLeft(examData.duration_minutes * 60); // convert to seconds
+    }
+    if (qData) {
+      setQuestions(qData);
+    }
+
     setLoading(false);
   };
 
-  const handleSelectOption = (option) => {
+  const handleOptionSelect = (optionKey) => {
     if (isSubmitted) return;
-    setSelectedAnswers({ ...selectedAnswers, [questions[currentIndex].id]: option });
+    setSelectedAnswers((prev) => ({
+      ...prev,
+      [currentIdx]: optionKey,
+    }));
   };
 
-  const handleSubmitExam = async () => {
-    if (isSubmitted) return;
-    if (!confirm('Are you sure you want to end and submit the exam?')) return;
-
-    setIsSubmitted(true);
-
-    // Calculate Scores
-    let score = 0;
-    let correctCount = 0;
-
-    questions.forEach((q) => {
-      if (selectedAnswers[q.id] === q.correct_option) {
-        score += 1;
-        correctCount += 1;
+  const handleSubmitExam = () => {
+    let finalScore = 0;
+    questions.forEach((q, index) => {
+      if (selectedAnswers[index] === q.correct_option) {
+        finalScore += q.marks || 1;
       }
     });
 
-    const finalResult = {
-      score,
-      total_questions: questions.length,
-      correct_answers: correctCount,
-      answers: selectedAnswers,
-    };
-
-    setResult(finalResult);
-
-    // Save Score to Supabase DB for candidate history & admin viewing
-    const { data: userData } = await supabase.auth.getUser();
-    if (userData?.user) {
-      await supabase.from('exam_results').insert([
-        {
-          user_id: userData.user.id,
-          exam_id: examId,
-          score: score,
-          total_questions: questions.length,
-          correct_answers: correctCount,
-          user_responses: selectedAnswers,
-        },
-      ]);
-    }
+    setScore(finalScore);
+    setIsSubmitted(true);
   };
 
   const formatTime = (seconds) => {
-    const hrs = Math.floor(seconds / 3600);
-    const mins = Math.floor((seconds % 3600) / 60);
+    if (seconds === null) return '00:00';
+    const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
-    return `${hrs > 0 ? `${hrs}h ` : ''}${mins < 10 ? '0' : ''}${mins}m ${secs < 10 ? '0' : ''}${secs}s`;
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
   };
 
-  if (loading) return <div className="p-10 text-center text-gray-500">Loading Exam Engine...</div>;
-  if (!questions.length) return <div className="p-10 text-center text-red-500">No questions found for this exam.</div>;
+  if (loading) {
+    return <div className="flex min-h-screen items-center justify-center font-medium">Loading Exam Portal...</div>;
+  }
 
-  const currentQ = questions[currentIndex];
+  if (!exam || questions.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen space-y-4">
+        <p className="text-gray-600">No questions found for this exam.</p>
+        <button onClick={() => router.push('/dashboard')} className="px-4 py-2 bg-blue-600 text-white rounded">
+          Back to Dashboard
+        </button>
+      </div>
+    );
+  }
+
+  const currentQuestion = questions[currentIdx];
 
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col">
-      {/* Top Header Bar */}
-      <header className="bg-blue-900 text-white px-6 py-4 flex justify-between items-center shadow-md">
+      {/* Top Bar */}
+      <header className="bg-white border-b px-6 py-4 flex justify-between items-center shadow-sm">
         <div>
-          <h1 className="text-xl font-bold">{exam?.title || 'Bank Exam Mock Test'}</h1>
-          <p className="text-xs text-blue-200">Question {currentIndex + 1} of {questions.length}</p>
+          <h1 className="text-xl font-bold text-gray-800">{exam.title}</h1>
+          <p className="text-xs text-gray-500">Subject: {exam.subjects?.title || 'General'}</p>
         </div>
-        {!isSubmitted ? (
-          <div className="bg-red-600 text-white font-mono px-4 py-2 rounded-md font-bold text-lg animate-pulse">
+        {!isSubmitted && (
+          <div className="bg-red-50 border border-red-200 px-4 py-1.5 rounded-md text-red-600 font-mono font-bold">
             ⏱ Time Left: {formatTime(timeLeft)}
-          </div>
-        ) : (
-          <div className="bg-green-600 text-white font-bold px-4 py-2 rounded-md">
-            Exam Submitted
           </div>
         )}
       </header>
 
-      {/* Main Container */}
-      <div className="flex-1 max-w-7xl w-full mx-auto p-6 grid grid-cols-1 lg:grid-cols-4 gap-6">
+      {/* Main Content Area */}
+      <div className="flex-1 max-w-5xl w-full mx-auto p-6 grid md:grid-cols-3 gap-6">
         
-        {/* Main Question Column */}
-        <div className="lg:col-span-3 bg-white p-6 rounded-lg shadow flex flex-col justify-between">
+        {/* Left 2 Columns: Question Area */}
+        <div className="md:col-span-2 bg-white rounded-lg p-6 shadow-sm border flex flex-col justify-between">
           {!isSubmitted ? (
             <div>
-              <div className="mb-6 border-b pb-4">
-                <span className="bg-blue-100 text-blue-800 text-xs font-semibold px-2.5 py-0.5 rounded">
-                  Q{currentIndex + 1}
-                </span>
-                <p className="text-lg font-semibold text-gray-800 mt-2">{currentQ.question_text}</p>
+              <div className="flex justify-between items-center border-b pb-3 mb-4">
+                <span className="font-semibold text-gray-700">Question {currentIdx + 1} of {questions.length}</span>
+                <span className="text-xs bg-gray-100 px-2.5 py-1 rounded text-gray-600">Marks: {currentQuestion.marks || 1}</span>
               </div>
 
-              {/* Answer Options */}
+              <p className="text-gray-800 font-medium text-lg mb-6">{currentQuestion.question_text}</p>
+
+              {/* Options */}
               <div className="space-y-3">
-                {['A', 'B', 'C', 'D'].map((opt) => (
-                  <label
-                    key={opt}
-                    onClick={() => handleSelectOption(opt)}
-                    className={`flex items-center p-4 border rounded-lg cursor-pointer transition ${
-                      selectedAnswers[currentQ.id] === opt
-                        ? 'border-blue-600 bg-blue-50 font-medium'
-                        : 'border-gray-200 hover:bg-gray-50'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name={`q-${currentQ.id}`}
-                      checked={selectedAnswers[currentQ.id] === opt}
-                      onChange={() => {}}
-                      className="h-4 w-4 text-blue-600"
-                    />
-                    <span className="ml-3 text-gray-700">
-                      <strong>{opt})</strong> {currentQ[`option_${opt.toLowerCase()}`]}
-                    </span>
-                  </label>
-                ))}
+                {['A', 'B', 'C', 'D'].map((opt) => {
+                  const optionText = currentQuestion[`option_${opt.toLowerCase()}`];
+                  const isSelected = selectedAnswers[currentIdx] === opt;
+
+                  return (
+                    <button
+                      key={opt}
+                      onClick={() => handleOptionSelect(opt)}
+                      className={`w-full text-left p-3.5 rounded-lg border transition text-sm font-medium ${
+                        isSelected
+                          ? 'border-blue-600 bg-blue-50 text-blue-900 font-semibold'
+                          : 'border-gray-200 hover:bg-gray-50 text-gray-700'
+                      }`}
+                    >
+                      <span className="inline-block w-6 font-bold">{opt}.</span> {optionText}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           ) : (
-            /* Results & Review View */
-            <div className="space-y-6">
-              <div className="bg-blue-50 border border-blue-200 p-6 rounded-lg text-center">
-                <h2 className="text-2xl font-bold text-blue-900 mb-2">Exam Completed!</h2>
-                <p className="text-4xl font-extrabold text-blue-600 my-2">
-                  {result?.score} / {result?.total_questions} Marks
-                </p>
-                <p className="text-sm text-gray-600">
-                  Accuracy: {Math.round((result?.correct_answers / result?.total_questions) * 100)}%
-                </p>
+            /* Result Overview */
+            <div className="text-center py-8 space-y-4">
+              <h2 className="text-2xl font-bold text-gray-800">Test Completed!</h2>
+              <div className="text-5xl font-extrabold text-blue-600">
+                {score} / {questions.length}
               </div>
-
-              <h3 className="text-lg font-bold text-gray-800 border-b pb-2">Detailed Question Review</h3>
-              {questions.map((q, idx) => {
-                const userAns = selectedAnswers[q.id];
-                const isCorrect = userAns === q.correct_option;
-                return (
-                  <div key={q.id} className={`p-4 border rounded-lg ${isCorrect ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
-                    <p className="font-semibold text-gray-900">Q{idx + 1}. {q.question_text}</p>
-                    <div className="text-sm mt-2 space-y-1">
-                      <p className={isCorrect ? 'text-green-700 font-medium' : 'text-red-700 font-medium'}>
-                        Your Answer: {userAns ? `${userAns}) ${q[`option_${userAns.toLowerCase()}`]}` : 'Not Answered'}
-                      </p>
-                      {!isCorrect && (
-                        <p className="text-green-700 font-medium">
-                          Correct Answer: {q.correct_option}) {q[`option_${q.correct_option.toLowerCase()}`]}
-                        </p>
-                      )}
-                      {q.explanation && (
-                        <p className="text-gray-600 text-xs italic mt-2 bg-white p-2 rounded border">
-                          💡 <strong>Explanation:</strong> {q.explanation}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
+              <p className="text-sm text-gray-600">Your score has been submitted.</p>
+              <button
+                onClick={() => router.push('/dashboard')}
+                className="mt-4 px-6 py-2.5 bg-blue-600 text-white font-semibold rounded hover:bg-blue-700"
+              >
+                Return to Dashboard
+              </button>
             </div>
           )}
 
-          {/* Navigation Controls */}
+          {/* Controls */}
           {!isSubmitted && (
-            <div className="flex justify-between items-center mt-8 pt-4 border-t">
+            <div className="flex justify-between items-center mt-8 border-t pt-4">
               <button
-                disabled={currentIndex === 0}
-                onClick={() => setCurrentIndex(currentIndex - 1)}
-                className="px-4 py-2 border rounded-md text-sm font-semibold disabled:opacity-50 hover:bg-gray-100"
+                disabled={currentIdx === 0}
+                onClick={() => setCurrentIdx((prev) => prev - 1)}
+                className="px-4 py-2 border text-gray-600 rounded disabled:opacity-40 text-sm font-semibold"
               >
-                ← Previous
+                Previous
               </button>
-              <button
-                onClick={handleSubmitExam}
-                className="px-6 py-2 bg-red-600 text-white rounded-md text-sm font-semibold hover:bg-red-700"
-              >
-                End & Submit Exam
-              </button>
-              <button
-                disabled={currentIndex === questions.length - 1}
-                onClick={() => setCurrentIndex(currentIndex + 1)}
-                className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-semibold disabled:opacity-50 hover:bg-blue-700"
-              >
-                Next →
-              </button>
+
+              {currentIdx < questions.length - 1 ? (
+                <button
+                  onClick={() => setCurrentIdx((prev) => prev + 1)}
+                  className="px-5 py-2 bg-blue-600 text-white rounded text-sm font-semibold hover:bg-blue-700"
+                >
+                  Next
+                </button>
+              ) : (
+                <button
+                  onClick={handleSubmitExam}
+                  className="px-5 py-2 bg-green-600 text-white rounded text-sm font-semibold hover:bg-green-700"
+                >
+                  Submit Test
+                </button>
+              )}
             </div>
           )}
         </div>
 
-        {/* Question Navigation Palette Sidebar */}
-        {!isSubmitted && (
-          <div className="bg-white p-6 rounded-lg shadow h-fit">
-            <h3 className="font-bold text-gray-800 mb-4 text-sm border-b pb-2">Question Palette</h3>
-            <div className="grid grid-cols-5 gap-2">
-              {questions.map((q, idx) => {
-                const isAnswered = selectedAnswers[q.id] !== undefined;
-                const isCurrent = idx === currentIndex;
-                return (
-                  <button
-                    key={q.id}
-                    onClick={() => setCurrentIndex(idx)}
-                    className={`h-10 w-full rounded font-semibold text-xs border transition ${
-                      isCurrent
-                        ? 'ring-2 ring-blue-600 border-blue-600 bg-blue-100 text-blue-900'
-                        : isAnswered
-                        ? 'bg-green-600 text-white border-green-600'
-                        : 'bg-gray-100 text-gray-700 border-gray-300 hover:bg-gray-200'
-                    }`}
-                  >
-                    {idx + 1}
-                  </button>
-                );
-              })}
+        {/* Right Column: Question Palette */}
+        <div className="bg-white rounded-lg p-5 shadow-sm border h-fit space-y-4">
+          <h3 className="font-bold text-gray-800 text-sm">Question Navigation</h3>
+          <div className="grid grid-cols-5 gap-2">
+            {questions.map((_, idx) => {
+              const isAnswered = selectedAnswers[idx] !== undefined;
+              const isCurrent = currentIdx === idx;
+
+              return (
+                <button
+                  key={idx}
+                  onClick={() => setCurrentIdx(idx)}
+                  className={`h-9 rounded font-semibold text-xs border transition ${
+                    isCurrent
+                      ? 'ring-2 ring-blue-600 border-blue-600 bg-white text-blue-600'
+                      : isAnswered
+                      ? 'bg-green-600 text-white border-green-600'
+                      : 'bg-gray-100 text-gray-700 border-gray-200'
+                  }`}
+                >
+                  {idx + 1}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="border-t pt-3 text-xs space-y-2 text-gray-600">
+            <div className="flex items-center gap-2">
+              <span className="w-3 h-3 bg-green-600 rounded-sm inline-block"></span> Answered
             </div>
-            <div className="mt-6 text-xs space-y-2 border-t pt-4 text-gray-600">
-              <div className="flex items-center gap-2">
-                <div className="w-4 h-4 bg-green-600 rounded"></div> Answered
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-4 h-4 bg-gray-100 border rounded"></div> Unanswered
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-4 h-4 bg-blue-100 border border-blue-600 rounded"></div> Current Question
-              </div>
+            <div className="flex items-center gap-2">
+              <span className="w-3 h-3 bg-gray-100 border border-gray-300 rounded-sm inline-block"></span> Unanswered
             </div>
           </div>
-        )}
+        </div>
+
       </div>
     </div>
   );
