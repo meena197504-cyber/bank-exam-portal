@@ -54,9 +54,24 @@ export default function StudentDashboard() {
   };
 
   // Mock Payment Activation Handler (Simulating Payment Gateway Success)
-  const handleUpgradePlan = async () => {
-    setPaymentLoading(true);
-    const { data: { user } } = await supabase.auth.getUser();
+  const handleRazorpay = () => {
+  const options = {
+    key: "YOUR_RAZORPAY_KEY",
+    amount: 49900, // ₹499 in paise
+    currency: "INR",
+    name: "Bank Exam Portal",
+    description: "Unlimited Mock Test Pass",
+    handler: async function (response) {
+      if (response.razorpay_payment_id) {
+        // Activate subscription on payment success
+        await supabase.from('profiles').update({ is_subscribed: true }).eq('id', profile.id);
+        fetchDashboardData();
+      }
+    }
+  };
+  const rzp = new window.Razorpay(options);
+  rzp.open();
+};
 
     if (user) {
       // 1. Mark profile as subscribed
