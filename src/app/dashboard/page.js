@@ -65,7 +65,7 @@ export default function StudentDashboard() {
       const orderRes = await fetch('/api/razorpay/create-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount: 499 }),
+        body: JSON.stringify({ amount: 1 }),
       });
 
       const orderData = await orderRes.json();
@@ -107,7 +107,7 @@ export default function StudentDashboard() {
             await supabase.from('payments').insert([
               {
                 user_id: user.id,
-                amount: 499,
+                amount: 1,
                 payment_id: response.razorpay_payment_id,
                 status: 'completed',
               },
