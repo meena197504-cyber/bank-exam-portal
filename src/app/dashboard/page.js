@@ -40,7 +40,7 @@ export default function StudentDashboard() {
 
     if (examsData) setExams(examsData);
 
-    // 3. Fetch Test Performance Results
+    // 3. Fetch Student Test Results
     const { data: resultsData } = await supabase
       .from('test_results')
       .select('*, exams(title)')
@@ -65,7 +65,7 @@ export default function StudentDashboard() {
     <div className="min-h-screen bg-gray-50 p-6">
       <div className="max-w-5xl mx-auto space-y-6">
         
-        {/* Profile Info */}
+        {/* User Card */}
         <div className="bg-white p-6 rounded-lg shadow-sm border flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
             <h1 className="text-2xl font-bold text-gray-800">Welcome, {profile?.full_name || 'Student'}!</h1>
@@ -81,7 +81,7 @@ export default function StudentDashboard() {
           </button>
         </div>
 
-        {/* Available Tests */}
+        {/* Available Mock Tests */}
         <div className="bg-white p-6 rounded-lg shadow-sm border">
           <h2 className="text-xl font-bold text-gray-800 mb-4">Available Mock Tests</h2>
           {exams.length === 0 ? (
@@ -111,7 +111,7 @@ export default function StudentDashboard() {
           )}
         </div>
 
-        {/* Performance Results */}
+        {/* Recent Performance Results */}
         <div className="bg-white p-6 rounded-lg shadow-sm border">
           <h2 className="text-xl font-bold text-gray-800 mb-4">Your Recent Performance</h2>
           {results.length === 0 ? (
@@ -119,15 +119,21 @@ export default function StudentDashboard() {
           ) : (
             <div className="space-y-3">
               {results.map((res) => (
-                <div key={res.id} className="flex justify-between items-center p-4 bg-gray-50 rounded-lg border">
+                <div key={res.id} className="flex justify-between items-center p-4 bg-gray-50 rounded-lg border flex-wrap gap-2">
                   <div>
                     <p className="font-bold text-gray-800">{res.exams?.title || 'Mock Test'}</p>
                     <p className="text-xs text-gray-500 mt-0.5">Attempted on: {new Date(res.created_at).toLocaleDateString()}</p>
                   </div>
-                  <div className="text-right">
+                  <div className="flex items-center gap-4">
                     <span className="font-extrabold text-blue-600 text-lg">
                       {res.score} / {res.total_questions}
                     </span>
+                    <button
+                      onClick={() => router.push(`/exam/review/${res.id}`)}
+                      className="px-3 py-1.5 bg-blue-50 text-blue-700 text-xs font-bold rounded border border-blue-200 hover:bg-blue-100"
+                    >
+                      Review Solutions
+                    </button>
                   </div>
                 </div>
               ))}
