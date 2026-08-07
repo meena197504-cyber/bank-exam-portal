@@ -24,7 +24,7 @@ export default function StudentDashboard() {
       return;
     }
 
-    // Fetch Profile
+    // 1. Fetch Profile
     const { data: profileData } = await supabase
       .from('profiles')
       .select('*')
@@ -33,7 +33,7 @@ export default function StudentDashboard() {
 
     if (profileData) setProfile(profileData);
 
-    // Fetch Exams
+    // 2. Fetch Exams
     const { data: examsData } = await supabase
       .from('exams')
       .select('*')
@@ -41,7 +41,7 @@ export default function StudentDashboard() {
 
     if (examsData) setExams(examsData);
 
-    // Fetch Past Results
+    // 3. Fetch Past Results
     const { data: resultsData } = await supabase
       .from('test_results')
       .select('*')
@@ -53,49 +53,90 @@ export default function StudentDashboard() {
     setLoading(false);
   };
 
-  // Mock Payment Activation Handler (Simulating Payment Gateway Success)
-  const handleRazorpay = () => {
-  const options = {
-    key: "YOUR_RAZORPAY_KEY",
-    amount: 49900, // ₹499 in paise
-    currency: "INR",
-    name: "Bank Exam Portal",
-    description: "Unlimited Mock Test Pass",
-    handler: async function (response) {
-      if (response.razorpay_payment_id) {
-        // Activate subscription on payment success
-        await supabase.from('profiles').update({ is_subscribed: true }).eq('id', profile.id);
-        fetchDashboardData();
+  // Official Razorpay Integration Flow
+  const handleRazorpayPayment = async () => {
+    setPaymentLoading(true);
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return router.push('/login');
+
+      // 1. Create order on server
+      const orderRes = await fetch('/api/razorpay/create-order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount: 499 }),
+      });
+
+      const orderData = await orderRes.json();
+      if (!orderData.orderId) {
+        alert('Failed to initiate payment. Check API configuration.');
+        setPaymentLoading(false);
+        return;
       }
+
+      // 2. Configure Razorpay Popup Options
+      const options = {
+        key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
+        amount: orderData.amount,
+        currency: orderData.currency,
+        name: 'Bank Exam Portal',
+        description: 'Unlock All Mock Tests (VIP Pass)',
+        order_id: orderData.orderId,
+        handler: async function (response) {
+          // 3. Verify Payment Signature Server-side
+          const verifyRes = await fetch('/api/razorpay/verify-payment', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_signature: response.razorpay_signature,
+            }),
+          });
+
+          const verifyData = await verifyRes.json();
+
+          if (verifyData.success) {
+            // 4. Update user profile to subscribed & insert payment record
+            await supabase
+              .from('profiles')
+              .update({ is_subscribed: true })
+              .eq('id', user.id);
+
+            await supabase.from('payments').insert([
+              {
+                user_id: user.id,
+                amount: 499,
+                payment_id: response.razorpay_payment_id,
+                status: 'completed',
+              },
+            ]);
+
+            alert('🎉 Payment Verified! All Mock Tests Unlocked.');
+            fetchDashboardData();
+          } else {
+            alert('❌ Payment verification failed: ' + verifyData.message);
+          }
+        },
+        prefill: {
+          name: profile?.full_name || 'Student',
+          email: profile?.email || '',
+          contact: profile?.phone || '9999999999',
+        },
+        theme: {
+          color: '#2563eb', // Blue theme
+        },
+      };
+
+      const paymentObject = new window.Razorpay(options);
+      paymentObject.open();
+    } catch (err) {
+      console.error('Payment Error:', err);
+      alert('Error initiating checkout.');
+    } finally {
+      setPaymentLoading(false);
     }
-  };
-  const rzp = new window.Razorpay(options);
-  rzp.open();
-};
-
-    if (user) {
-      // 1. Mark profile as subscribed
-      const { error: profileErr } = await supabase
-        .from('profiles')
-        .update({ is_subscribed: true })
-        .eq('id', user.id);
-
-      // 2. Log transaction
-      await supabase.from('payments').insert([
-        {
-          user_id: user.id,
-          amount: 499,
-          payment_id: `PAY_MOCK_${Date.now()}`,
-          status: 'completed'
-        }
-      ]);
-
-      if (!profileErr) {
-        alert('Payment Successful! Full access unlocked.');
-        fetchDashboardData();
-      }
-    }
-    setPaymentLoading(false);
   };
 
   const handleLogout = async () => {
@@ -114,7 +155,7 @@ export default function StudentDashboard() {
     <div className="min-h-screen bg-gray-50 p-6">
       <div className="max-w-5xl mx-auto space-y-6">
         
-        {/* User Status Card */}
+        {/* Profile / Subscription Header */}
         <div className="bg-white p-6 rounded-lg shadow-sm border flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
             <div className="flex items-center gap-2">
@@ -133,11 +174,11 @@ export default function StudentDashboard() {
           <div className="flex items-center gap-3">
             {!isUserSubscribed && (
               <button
-                onClick={handleUpgradePlan}
+                onClick={handleRazorpayPayment}
                 disabled={paymentLoading}
-                className="bg-green-600 text-white px-4 py-2 rounded-md text-sm font-bold hover:bg-green-700 shadow-sm"
+                className="bg-green-600 text-white px-4 py-2 rounded-md text-sm font-bold hover:bg-green-700 shadow-sm transition"
               >
-                {paymentLoading ? 'Processing...' : 'Unlock All Tests (₹499)'}
+                {paymentLoading ? 'Opening Razorpay...' : 'Unlock All Tests (₹499)'}
               </button>
             )}
             <button
@@ -149,7 +190,7 @@ export default function StudentDashboard() {
           </div>
         </div>
 
-        {/* Available Mock Tests */}
+        {/* Mock Tests List */}
         <div className="bg-white p-6 rounded-lg shadow-sm border">
           <h2 className="text-xl font-bold text-gray-800 mb-4">Available Mock Tests</h2>
           {exams.length === 0 ? (
@@ -157,7 +198,6 @@ export default function StudentDashboard() {
           ) : (
             <div className="grid md:grid-cols-2 gap-4">
               {exams.map((exam, index) => {
-                // Free rule: Either exam is marked free, OR it's the student's 1st exam attempt
                 const isFreeExam = exam.is_free || index === 0;
                 const canAccess = isUserSubscribed || isFreeExam || freeTestsAttempted < 1;
 
@@ -187,10 +227,10 @@ export default function StudentDashboard() {
                       </button>
                     ) : (
                       <button
-                        onClick={handleUpgradePlan}
+                        onClick={handleRazorpayPayment}
                         className="mt-4 w-full bg-amber-500 text-white py-2 rounded font-semibold text-sm hover:bg-amber-600 flex items-center justify-center gap-1"
                       >
-                        🔒 Upgrade to Unlock
+                        🔒 Upgrade with Razorpay
                       </button>
                     )}
                   </div>
@@ -200,7 +240,7 @@ export default function StudentDashboard() {
           )}
         </div>
 
-        {/* Performance Results */}
+        {/* Recent Performance Results */}
         <div className="bg-white p-6 rounded-lg shadow-sm border">
           <h2 className="text-xl font-bold text-gray-800 mb-4">Your Recent Performance</h2>
           {results.length === 0 ? (
