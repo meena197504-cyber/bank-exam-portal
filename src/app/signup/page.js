@@ -1,116 +1,123 @@
 'use client';
 
 import { useState } from 'react';
-import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { supabase } from '@/lib/supabase';
 
 export default function SignupPage() {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [fullName, setFullName] = useState('');
-  const [message, setMessage] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
   const router = useRouter();
+  const [formData, setFormData] = useState({ name: '', email: '', password: '' });
+  const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleSignup = async (e) => {
+  const handleChange = (e) => {
+    setFormData({ ...formData, [e.target.name]: e.target.value });
+  };
+
+  const handleSignUp = async (e) => {
     e.preventDefault();
-    setLoading(true);
     setError('');
     setMessage('');
+    setLoading(true);
 
     try {
-      const { data, error: signupError } = await supabase.auth.signUp({
-        email: email,
-        password: password,
+      const { data, error: signUpError } = await supabase.auth.signUp({
+        email: formData.email,
+        password: formData.password,
         options: {
-          data: {
-            full_name: fullName,
-          },
-          emailRedirectTo: 'https://bank-exam-portal.vercel.app/login',
+          data: { full_name: formData.name },
         },
       });
 
-      if (signupError) {
-        setError(signupError.message);
-      } else if (data?.user?.identities?.length === 0) {
-        setError('An account with this email already exists. Please try logging in.');
+      if (signUpError) {
+        // Fix: Extracts the string message directly so {} won't display
+        setError(signUpError.message || 'Signup failed. Please try again.');
+      } else if (data?.session) {
+        setMessage('Signup successful! Redirecting...');
+        setTimeout(() => router.push('/dashboard'), 1500);
       } else {
-        setMessage('Registration successful! Check your email for a confirmation link, or log in.');
-        setTimeout(() => {
-          router.push('/login');
-        }, 3000);
+        setMessage('Signup successful! Please check your email to confirm your account.');
       }
     } catch (err) {
-      setError(err?.message || 'An unexpected error occurred during signup.');
+      setError(err?.message || 'An unexpected error occurred.');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6 font-sans">
-      <div className="bg-white p-8 rounded-xl shadow-md border border-slate-200 max-w-md w-full">
-        <div className="text-center mb-6">
-          <h2 className="text-2xl font-bold text-slate-900">Create Candidate Account</h2>
-          <p className="text-xs text-slate-500 mt-1">Register for JAIIB & CAIIB Mock Exams</p>
-        </div>
+    <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4">
+      <div className="w-full max-w-md rounded-lg bg-white p-8 shadow-md">
+        <h2 className="mb-6 text-center text-2xl font-bold text-gray-800">Create an Account</h2>
 
-        {error && <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded mb-4">{error}</div>}
-        {message && <div className="p-3 bg-green-50 border border-green-200 text-green-700 text-xs rounded mb-4">{message}</div>}
+        {error && (
+          <div className="mb-4 rounded bg-red-100 p-3 text-sm text-red-700">
+            {error}
+          </div>
+        )}
 
-        <form onSubmit={handleSignup} className="space-y-4">
+        {message && (
+          <div className="mb-4 rounded bg-green-100 p-3 text-sm text-green-700">
+            {message}
+          </div>
+        )}
+
+        <form onSubmit={handleSignUp} className="space-y-4">
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">Full Name</label>
+            <label className="block text-sm font-medium text-gray-700">Full Name</label>
             <input
               type="text"
+              name="name"
               required
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
-              placeholder="e.g. Rahul Sharma"
-              className="w-full px-3 py-2 border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-600"
+              value={formData.name}
+              onChange={handleChange}
+              className="mt-1 w-full rounded-md border border-gray-300 p-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none"
+              placeholder="John Doe"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">Email Address</label>
+            <label className="block text-sm font-medium text-gray-700">Email</label>
             <input
               type="email"
+              name="email"
               required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="name@example.com"
-              className="w-full px-3 py-2 border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-600"
+              value={formData.email}
+              onChange={handleChange}
+              className="mt-1 w-full rounded-md border border-gray-300 p-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none"
+              placeholder="you@example.com"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">Password</label>
+            <label className="block text-sm font-medium text-gray-700">Password</label>
             <input
               type="password"
+              name="password"
               required
               minLength={6}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              value={formData.password}
+              onChange={handleChange}
+              className="mt-1 w-full rounded-md border border-gray-300 p-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none"
               placeholder="••••••••"
-              className="w-full px-3 py-2 border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-600"
             />
           </div>
 
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-2.5 bg-blue-900 text-white font-semibold rounded-md text-sm hover:bg-blue-800 transition disabled:opacity-50"
+            className="w-full rounded-md bg-blue-600 py-2 text-white font-medium hover:bg-blue-700 disabled:opacity-50"
           >
             {loading ? 'Creating Account...' : 'Sign Up'}
           </button>
         </form>
 
-        <p className="text-xs text-slate-500 text-center mt-6">
+        <p className="mt-4 text-center text-sm text-gray-600">
           Already have an account?{' '}
-          <Link href="/login" className="text-blue-900 font-semibold hover:underline">
-            Log In
+          <Link href="/login" className="text-blue-600 hover:underline">
+            Log in
           </Link>
         </p>
       </div>
