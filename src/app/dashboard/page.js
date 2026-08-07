@@ -8,6 +8,7 @@ export default function StudentDashboard() {
   const router = useRouter();
   const [profile, setProfile] = useState(null);
   const [exams, setExams] = useState([]);
+  const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -15,7 +16,6 @@ export default function StudentDashboard() {
   }, []);
 
   const fetchDashboardData = async () => {
-    // 1. Get current logged in user
     const { data: { user } } = await supabase.auth.getUser();
 
     if (!user) {
@@ -23,26 +23,31 @@ export default function StudentDashboard() {
       return;
     }
 
-    // 2. Fetch user profile (includes phone & full_name)
+    // 1. Fetch Profile
     const { data: profileData } = await supabase
       .from('profiles')
       .select('*')
       .eq('id', user.id)
       .single();
 
-    if (profileData) {
-      setProfile(profileData);
-    }
+    if (profileData) setProfile(profileData);
 
-    // 3. Fetch all active mock tests with subject & course info
+    // 2. Fetch Active Exams
     const { data: examsData } = await supabase
       .from('exams')
       .select('*, subjects(title, courses(title))')
       .order('created_at', { ascending: false });
 
-    if (examsData) {
-      setExams(examsData);
-    }
+    if (examsData) setExams(examsData);
+
+    // 3. Fetch Test Performance Results
+    const { data: resultsData } = await supabase
+      .from('test_results')
+      .select('*, exams(title)')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false });
+
+    if (resultsData) setResults(resultsData);
 
     setLoading(false);
   };
@@ -60,7 +65,7 @@ export default function StudentDashboard() {
     <div className="min-h-screen bg-gray-50 p-6">
       <div className="max-w-5xl mx-auto space-y-6">
         
-        {/* Header & User Profile Info */}
+        {/* Profile Info */}
         <div className="bg-white p-6 rounded-lg shadow-sm border flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
             <h1 className="text-2xl font-bold text-gray-800">Welcome, {profile?.full_name || 'Student'}!</h1>
@@ -76,16 +81,15 @@ export default function StudentDashboard() {
           </button>
         </div>
 
-        {/* Available Mock Tests */}
+        {/* Available Tests */}
         <div className="bg-white p-6 rounded-lg shadow-sm border">
           <h2 className="text-xl font-bold text-gray-800 mb-4">Available Mock Tests</h2>
-
           {exams.length === 0 ? (
-            <p className="text-gray-500 py-4">No mock tests available at the moment. Please check back later!</p>
+            <p className="text-gray-500 py-2">No mock tests available right now.</p>
           ) : (
             <div className="grid md:grid-cols-2 gap-4">
               {exams.map((exam) => (
-                <div key={exam.id} className="p-5 border rounded-lg hover:shadow-md transition bg-gray-50 flex flex-col justify-between">
+                <div key={exam.id} className="p-5 border rounded-lg bg-gray-50 flex flex-col justify-between">
                   <div>
                     <span className="text-xs font-semibold bg-blue-100 text-blue-800 px-2.5 py-1 rounded-full uppercase">
                       {exam.subjects?.courses?.title || 'General'}
@@ -101,6 +105,30 @@ export default function StudentDashboard() {
                   >
                     Start Test
                   </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Performance Results */}
+        <div className="bg-white p-6 rounded-lg shadow-sm border">
+          <h2 className="text-xl font-bold text-gray-800 mb-4">Your Recent Performance</h2>
+          {results.length === 0 ? (
+            <p className="text-gray-500 py-2">You haven't attempted any mock tests yet.</p>
+          ) : (
+            <div className="space-y-3">
+              {results.map((res) => (
+                <div key={res.id} className="flex justify-between items-center p-4 bg-gray-50 rounded-lg border">
+                  <div>
+                    <p className="font-bold text-gray-800">{res.exams?.title || 'Mock Test'}</p>
+                    <p className="text-xs text-gray-500 mt-0.5">Attempted on: {new Date(res.created_at).toLocaleDateString()}</p>
+                  </div>
+                  <div className="text-right">
+                    <span className="font-extrabold text-blue-600 text-lg">
+                      {res.score} / {res.total_questions}
+                    </span>
+                  </div>
                 </div>
               ))}
             </div>
