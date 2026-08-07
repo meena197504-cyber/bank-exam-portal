@@ -33,20 +33,22 @@ export default function StudentDashboard() {
     if (profileData) setProfile(profileData);
 
     // 2. Fetch Active Exams
-    const { data: examsData } = await supabase
+    const { data: examsData, error: examErr } = await supabase
       .from('exams')
-      .select('*, subjects(title, courses(title))')
+      .select('*')
       .order('created_at', { ascending: false });
 
+    if (examErr) console.error('Error fetching exams:', examErr);
     if (examsData) setExams(examsData);
 
-    // 3. Fetch Student Test Results
-    const { data: resultsData } = await supabase
+    // 3. Fetch Test Performance Results
+    const { data: resultsData, error: resErr } = await supabase
       .from('test_results')
-      .select('*, exams(title)')
+      .select('*')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false });
 
+    if (resErr) console.error('Error fetching results:', resErr);
     if (resultsData) setResults(resultsData);
 
     setLoading(false);
@@ -85,17 +87,13 @@ export default function StudentDashboard() {
         <div className="bg-white p-6 rounded-lg shadow-sm border">
           <h2 className="text-xl font-bold text-gray-800 mb-4">Available Mock Tests</h2>
           {exams.length === 0 ? (
-            <p className="text-gray-500 py-2">No mock tests available right now.</p>
+            <p className="text-gray-500 py-2">No mock tests available right now. (Make sure you created a test in Admin panel)</p>
           ) : (
             <div className="grid md:grid-cols-2 gap-4">
               {exams.map((exam) => (
                 <div key={exam.id} className="p-5 border rounded-lg bg-gray-50 flex flex-col justify-between">
                   <div>
-                    <span className="text-xs font-semibold bg-blue-100 text-blue-800 px-2.5 py-1 rounded-full uppercase">
-                      {exam.subjects?.courses?.title || 'General'}
-                    </span>
-                    <h3 className="text-lg font-bold text-gray-800 mt-2">{exam.title}</h3>
-                    <p className="text-sm text-gray-600 mt-1">Subject: {exam.subjects?.title || 'General'}</p>
+                    <h3 className="text-lg font-bold text-gray-800">{exam.title}</h3>
                     <p className="text-xs text-gray-500 mt-2">⏱ Duration: {exam.duration_minutes} Minutes</p>
                   </div>
 
@@ -121,7 +119,7 @@ export default function StudentDashboard() {
               {results.map((res) => (
                 <div key={res.id} className="flex justify-between items-center p-4 bg-gray-50 rounded-lg border flex-wrap gap-2">
                   <div>
-                    <p className="font-bold text-gray-800">{res.exams?.title || 'Mock Test'}</p>
+                    <p className="font-bold text-gray-800">Mock Test Attempt</p>
                     <p className="text-xs text-gray-500 mt-0.5">Attempted on: {new Date(res.created_at).toLocaleDateString()}</p>
                   </div>
                   <div className="flex items-center gap-4">
