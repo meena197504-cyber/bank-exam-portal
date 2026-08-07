@@ -60,7 +60,7 @@ export default function ExamPage() {
 
     if (examData) {
       setExam(examData);
-      setTimeLeft(examData.duration_minutes * 60); // convert to seconds
+      setTimeLeft(examData.duration_minutes * 60);
     }
     if (qData) {
       setQuestions(qData);
@@ -88,7 +88,7 @@ export default function ExamPage() {
     setScore(finalScore);
     setIsSubmitted(true);
 
-    // Save score automatically to test_results table
+    // Save score and selected answers payload for reviewing solutions
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
@@ -98,6 +98,7 @@ export default function ExamPage() {
             exam_id: examId,
             score: finalScore,
             total_questions: questions.length,
+            answers: selectedAnswers,
           },
         ]);
       }
@@ -145,7 +146,7 @@ export default function ExamPage() {
         )}
       </header>
 
-      {/* Main Body */}
+      {/* Main Area */}
       <div className="flex-1 max-w-5xl w-full mx-auto p-6 grid md:grid-cols-3 gap-6">
         
         {/* Question Area */}
@@ -198,7 +199,7 @@ export default function ExamPage() {
             </div>
           )}
 
-          {/* Nav Actions */}
+          {/* Navigation Actions */}
           {!isSubmitted && (
             <div className="flex justify-between items-center mt-8 border-t pt-4">
               <button
