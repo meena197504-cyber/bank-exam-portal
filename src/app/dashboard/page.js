@@ -7,7 +7,8 @@ import { supabase } from '@/lib/supabase';
 export default function StudentDashboard() {
   const router = useRouter();
   const [profile, setProfile] = useState(null);
-  const [exams, setExams] = useState([]);
+  const [courses, setCourses] = useState([]);
+  const [userSubscriptions, setUserSubscriptions] = useState([]);
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(true);
   const [paymentLoading, setPaymentLoading] = useState(false);
@@ -33,18 +34,28 @@ export default function StudentDashboard() {
 
     if (profileData) setProfile(profileData);
 
-    // 2. Fetch Exams
-    const { data: examsData } = await supabase
-      .from('exams')
+    // 2. Fetch All Courses
+    const { data: coursesData } = await supabase
+      .from('courses')
       .select('*')
       .order('created_at', { ascending: false });
 
-    if (examsData) setExams(examsData);
+    if (coursesData) setCourses(coursesData);
 
-    // 3. Fetch Past Results
+    // 3. Fetch User's Purchased Courses
+    const { data: subData } = await supabase
+      .from('user_course_subscriptions')
+      .select('course_id')
+      .eq('user_id', user.id);
+
+    if (subData) {
+      setUserSubscriptions(subData.map((s) => s.course_id));
+    }
+
+    // 4. Fetch Test Performance Results
     const { data: resultsData } = await supabase
       .from('test_results')
-      .select('*')
+      .select('*, exams(title)')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false });
 
@@ -53,8 +64,8 @@ export default function StudentDashboard() {
     setLoading(false);
   };
 
-  // Official Razorpay Integration Flow
-  const handleRazorpayPayment = async () => {
+  // Razorpay Checkout Handler for a specific Course
+  const handleBuyCourse = async (courseId, courseTitle) => {
     setPaymentLoading(true);
 
     try {
@@ -65,26 +76,26 @@ export default function StudentDashboard() {
       const orderRes = await fetch('/api/razorpay/create-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount: 1 }),
+        body: JSON.stringify({ amount: 499 }),
       });
 
       const orderData = await orderRes.json();
       if (!orderData.orderId) {
-        alert('Failed to initiate payment. Check API configuration.');
+        alert('Failed to initiate payment.');
         setPaymentLoading(false);
         return;
       }
 
-      // 2. Configure Razorpay Popup Options
+      // 2. Open Razorpay Checkout Popup
       const options = {
         key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
         amount: orderData.amount,
         currency: orderData.currency,
-        name: 'Bank Exam Portal',
-        description: 'Unlock All Mock Tests (VIP Pass)',
+        name: 'Bank & TNPSC Exam Portal',
+        description: `Unlock Full Pass: ${courseTitle}`,
         order_id: orderData.orderId,
         handler: async function (response) {
-          // 3. Verify Payment Signature Server-side
+          // 3. Verify Payment Signature
           const verifyRes = await fetch('/api/razorpay/verify-payment', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -98,35 +109,27 @@ export default function StudentDashboard() {
           const verifyData = await verifyRes.json();
 
           if (verifyData.success) {
-            // 4. Update user profile to subscribed & insert payment record
-            await supabase
-              .from('profiles')
-              .update({ is_subscribed: true })
-              .eq('id', user.id);
-
-            await supabase.from('payments').insert([
+            // 4. Record course subscription
+            await supabase.from('user_course_subscriptions').insert([
               {
                 user_id: user.id,
-                amount: 1,
+                course_id: courseId,
                 payment_id: response.razorpay_payment_id,
-                status: 'completed',
               },
             ]);
 
-            alert('🎉 Payment Verified! All Mock Tests Unlocked.');
+            alert(`🎉 Congratulations! You have unlocked ${courseTitle}.`);
             fetchDashboardData();
           } else {
-            alert('❌ Payment verification failed: ' + verifyData.message);
+            alert('Payment verification failed.');
           }
         },
         prefill: {
           name: profile?.full_name || 'Student',
           email: profile?.email || '',
-          contact: profile?.phone || '9999999999',
+          contact: profile?.phone || '',
         },
-        theme: {
-          color: '#2563eb', // Blue theme
-        },
+        theme: { color: '#2563eb' },
       };
 
       const paymentObject = new window.Razorpay(options);
@@ -145,94 +148,79 @@ export default function StudentDashboard() {
   };
 
   if (loading) {
-    return <div className="flex min-h-screen items-center justify-center font-medium">Loading Dashboard...</div>;
+    return <div className="flex min-h-screen items-center justify-center font-medium">Loading Catalog...</div>;
   }
-
-  const isUserSubscribed = profile?.is_subscribed || false;
-  const freeTestsAttempted = results.length;
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-5xl mx-auto space-y-6">
+      <div className="max-w-6xl mx-auto space-y-8">
         
-        {/* Profile / Subscription Header */}
+        {/* Profile Card */}
         <div className="bg-white p-6 rounded-lg shadow-sm border flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-2xl font-bold text-gray-800">Welcome, {profile?.full_name || 'Student'}!</h1>
-              {isUserSubscribed ? (
-                <span className="text-xs bg-green-100 text-green-800 px-2.5 py-1 rounded-full font-bold">VIP Premium Member</span>
-              ) : (
-                <span className="text-xs bg-yellow-100 text-yellow-800 px-2.5 py-1 rounded-full font-bold">Free Plan (1 Test Limit)</span>
-              )}
-            </div>
+            <h1 className="text-2xl font-bold text-gray-800">Welcome, {profile?.full_name || 'Student'}!</h1>
             <p className="text-sm text-gray-500 mt-1">
-              Email: <span className="font-medium text-gray-700">{profile?.email}</span> | Phone: <span className="font-medium text-gray-700">{profile?.phone || 'N/A'}</span>
+              Select a target course below to start practicing mock tests.
             </p>
           </div>
-
-          <div className="flex items-center gap-3">
-            {!isUserSubscribed && (
-              <button
-                onClick={handleRazorpayPayment}
-                disabled={paymentLoading}
-                className="bg-green-600 text-white px-4 py-2 rounded-md text-sm font-bold hover:bg-green-700 shadow-sm transition"
-              >
-                {paymentLoading ? 'Opening Razorpay...' : 'Unlock All Tests (₹499)'}
-              </button>
-            )}
-            <button
-              onClick={handleLogout}
-              className="bg-red-50 text-red-600 px-4 py-2 rounded-md border border-red-200 text-sm font-semibold hover:bg-red-100"
-            >
-              Log Out
-            </button>
-          </div>
+          <button
+            onClick={handleLogout}
+            className="bg-red-50 text-red-600 px-4 py-2 rounded-md border border-red-200 text-sm font-semibold hover:bg-red-100"
+          >
+            Log Out
+          </button>
         </div>
 
-        {/* Mock Tests List */}
-        <div className="bg-white p-6 rounded-lg shadow-sm border">
-          <h2 className="text-xl font-bold text-gray-800 mb-4">Available Mock Tests</h2>
-          {exams.length === 0 ? (
-            <p className="text-gray-500 py-2">No mock tests available right now.</p>
+        {/* Course Catalog Grid */}
+        <div className="space-y-4">
+          <h2 className="text-xl font-bold text-gray-800">Available Exam Categories</h2>
+          
+          {courses.length === 0 ? (
+            <p className="text-gray-500 bg-white p-6 rounded border">No courses added yet by admin.</p>
           ) : (
-            <div className="grid md:grid-cols-2 gap-4">
-              {exams.map((exam, index) => {
-                const isFreeExam = exam.is_free || index === 0;
-                const canAccess = isUserSubscribed || isFreeExam || freeTestsAttempted < 1;
+            <div className="grid md:grid-cols-3 gap-6">
+              {courses.map((course) => {
+                const isPurchased = userSubscriptions.includes(course.id);
 
                 return (
-                  <div key={exam.id} className="p-5 border rounded-lg bg-gray-50 flex flex-col justify-between">
+                  <div key={course.id} className="bg-white border rounded-xl p-6 shadow-sm flex flex-col justify-between space-y-4 hover:shadow-md transition">
                     <div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-xs font-semibold bg-blue-100 text-blue-800 px-2.5 py-1 rounded-full uppercase">
-                          Bank Exam
+                      <div className="flex justify-between items-center mb-2">
+                        <span className="text-xs font-bold text-blue-600 bg-blue-50 px-2.5 py-1 rounded-full uppercase">
+                          Target Exam
                         </span>
-                        {isFreeExam ? (
-                          <span className="text-xs font-bold text-green-700 bg-green-100 px-2 py-0.5 rounded">Free Access</span>
+                        {isPurchased ? (
+                          <span className="text-xs font-bold text-green-700 bg-green-100 px-2.5 py-1 rounded-full">
+                            ✓ Unlocked
+                          </span>
                         ) : (
-                          <span className="text-xs font-bold text-purple-700 bg-purple-100 px-2 py-0.5 rounded">Premium</span>
+                          <span className="text-xs font-bold text-amber-700 bg-amber-100 px-2.5 py-1 rounded-full">
+                            🔒 Locked
+                          </span>
                         )}
                       </div>
-                      <h3 className="text-lg font-bold text-gray-800 mt-2">{exam.title}</h3>
-                      <p className="text-xs text-gray-500 mt-2">⏱ Duration: {exam.duration_minutes} Minutes</p>
+                      <h3 className="text-xl font-bold text-gray-800">{course.title}</h3>
+                      <p className="text-sm text-gray-600 mt-1">{course.description || 'Complete test series and subject notes.'}</p>
                     </div>
 
-                    {canAccess ? (
+                    <div className="space-y-2 pt-2 border-t">
                       <button
-                        onClick={() => router.push(`/exam/${exam.id}`)}
-                        className="mt-4 w-full bg-blue-600 text-white py-2 rounded font-semibold text-sm hover:bg-blue-700"
+                        onClick={() => router.push(`/course/${course.id}`)}
+                        className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-semibold text-sm hover:bg-blue-700"
                       >
-                        Start Test
+                        View Subjects & Tests
                       </button>
-                    ) : (
-                      <button
-                        onClick={handleRazorpayPayment}
-                        className="mt-4 w-full bg-amber-500 text-white py-2 rounded font-semibold text-sm hover:bg-amber-600 flex items-center justify-center gap-1"
-                      >
-                        🔒 Upgrade with Razorpay
-                      </button>
-                    )}
+
+                      {!isPurchased && (
+                        <button
+                          onClick={() => handleBuyCourse(course.id, course.title)}
+                          disabled={paymentLoading}
+                          className="w-full bg-green-600 text-white py-2 rounded-lg font-bold text-xs hover:bg-green-700 transition"
+                        >
+                          Unlock All Tests in {course.title} (₹499)
+                        </button>
+                      )}
+                    </div>
                   </div>
                 );
               })}
@@ -240,17 +228,17 @@ export default function StudentDashboard() {
           )}
         </div>
 
-        {/* Recent Performance Results */}
-        <div className="bg-white p-6 rounded-lg shadow-sm border">
-          <h2 className="text-xl font-bold text-gray-800 mb-4">Your Recent Performance</h2>
+        {/* Recent Performance */}
+        <div className="bg-white p-6 rounded-lg shadow-sm border space-y-4">
+          <h2 className="text-xl font-bold text-gray-800">Your Recent Test Scores</h2>
           {results.length === 0 ? (
-            <p className="text-gray-500 py-2">You haven't attempted any mock tests yet.</p>
+            <p className="text-gray-500 py-2 text-sm">You haven't attempted any mock tests yet.</p>
           ) : (
             <div className="space-y-3">
               {results.map((res) => (
                 <div key={res.id} className="flex justify-between items-center p-4 bg-gray-50 rounded-lg border flex-wrap gap-2">
                   <div>
-                    <p className="font-bold text-gray-800">Mock Test Attempt</p>
+                    <p className="font-bold text-gray-800">{res.exams?.title || 'Mock Test'}</p>
                     <p className="text-xs text-gray-500 mt-0.5">Attempted on: {new Date(res.created_at).toLocaleDateString()}</p>
                   </div>
                   <div className="flex items-center gap-4">
