@@ -24,7 +24,6 @@ export default function ExamPage() {
     }
   }, [examId]);
 
-  // Countdown timer logic
   useEffect(() => {
     if (timeLeft === null || isSubmitted) return;
     if (timeLeft <= 0) {
@@ -37,29 +36,44 @@ export default function ExamPage() {
 
   const verifyAndFetchExam = async () => {
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      router.push('/login');
-      return;
-    }
+    if (!user) return router.push('/login');
 
-    // 1. Fetch Profile, past test count, and exam details
-    const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
-    const { data: results } = await supabase.from('test_results').select('id').eq('user_id', user.id);
-    const { data: examData } = await supabase.from('exams').select('*').eq('id', examId).single();
+    // 1. Fetch Exam & Subject -> Course ID
+    const { data: examData } = await supabase
+      .from('exams')
+      .select('*, subjects(id, course_id, title)')
+      .eq('id', examId)
+      .single();
 
-    // 2. Check freemium access conditions
-    const isSubscribed = profile?.is_subscribed || false;
-    const isFreeExam = examData?.is_free || false;
-    const attemptsCount = results?.length || 0;
-
-    if (!isSubscribed && !isFreeExam && attemptsCount >= 1) {
-      setAccessDenied(true);
+    if (!examData) {
       setLoading(false);
       return;
     }
 
     setExam(examData);
-    setTimeLeft(examData ? examData.duration_minutes * 60 : 3600);
+    setTimeLeft(examData.duration_minutes * 60);
+
+    const courseId = examData.subjects?.course_id;
+
+    // 2. Check if user purchased THIS specific course
+    const { data: courseSub } = await supabase
+      .from('user_course_subscriptions')
+      .select('id')
+      .eq('user_id', user.id)
+      .eq('course_id', courseId);
+
+    const { data: userResults } = await supabase.from('test_results').select('id').eq('user_id', user.id);
+
+    const isCoursePurchased = courseSub && courseSub.length > 0;
+    const isFreeExam = examData.is_free;
+    const totalAttempts = userResults ? userResults.length : 0;
+
+    // Reject access if user hasn't bought this course, it's not marked free, and they used their 1 free attempt
+    if (!isCoursePurchased && !isFreeExam && totalAttempts >= 1) {
+      setAccessDenied(true);
+      setLoading(false);
+      return;
+    }
 
     // 3. Fetch Questions
     const { data: qData } = await supabase.from('questions').select('*').eq('exam_id', examId);
@@ -112,7 +126,7 @@ export default function ExamPage() {
   };
 
   if (loading) {
-    return <div className="flex min-h-screen items-center justify-center font-medium">Verifying Exam Access...</div>;
+    return <div className="flex min-h-screen items-center justify-center font-medium">Verifying Course Access...</div>;
   }
 
   if (accessDenied) {
@@ -120,15 +134,15 @@ export default function ExamPage() {
       <div className="flex flex-col items-center justify-center min-h-screen p-6 text-center bg-gray-50">
         <div className="bg-white p-8 rounded-lg shadow-md border max-w-md space-y-4">
           <div className="text-4xl">🔒</div>
-          <h2 className="text-2xl font-bold text-gray-800">Test Locked</h2>
+          <h2 className="text-2xl font-bold text-gray-800">Course Locked</h2>
           <p className="text-gray-600 text-sm">
-            You have used your 1 Free Exam attempt. Please subscribe to unlock unlimited mock tests!
+            You need an active subscription for this course to access this test.
           </p>
           <button
             onClick={() => router.push('/dashboard')}
-            className="w-full py-2.5 bg-green-600 text-white font-bold rounded hover:bg-green-700"
+            className="w-full py-2.5 bg-blue-600 text-white font-bold rounded hover:bg-blue-700"
           >
-            Go to Dashboard & Upgrade
+            Back to Dashboard & Unlock Course
           </button>
         </div>
       </div>
@@ -145,7 +159,7 @@ export default function ExamPage() {
       <header className="bg-white border-b px-6 py-4 flex justify-between items-center shadow-sm">
         <div>
           <h1 className="text-xl font-bold text-gray-800">{exam?.title}</h1>
-          <p className="text-xs text-gray-500">Bank Test Series</p>
+          <p className="text-xs text-gray-500">Subject: {exam?.subjects?.title || 'General'}</p>
         </div>
         {!isSubmitted && (
           <div className="bg-red-50 border border-red-200 px-4 py-1.5 rounded-md text-red-600 font-mono font-bold">
@@ -157,7 +171,7 @@ export default function ExamPage() {
       {/* Main Container */}
       <div className="flex-1 max-w-5xl w-full mx-auto p-6 grid md:grid-cols-3 gap-6">
         
-        {/* Left Column: Question & Instant Solutions */}
+        {/* Left Column: Question & Solution */}
         <div className="md:col-span-2 bg-white rounded-lg p-6 shadow-sm border flex flex-col justify-between space-y-6">
           {!isSubmitted ? (
             <div className="space-y-6">
@@ -205,7 +219,7 @@ export default function ExamPage() {
                 })}
               </div>
 
-              {/* Immediate Solution Block */}
+              {/* Instant Solution Block */}
               {hasAnsweredCurrent && (
                 <div className="p-4 bg-blue-50 border-l-4 border-blue-500 rounded-r text-sm text-blue-900 space-y-1.5 transition-all">
                   <div className="font-bold flex items-center gap-1.5 text-blue-950">
@@ -234,7 +248,7 @@ export default function ExamPage() {
             </div>
           )}
 
-          {/* Navigation & Always-Visible Submit Button */}
+          {/* Navigation and Submit Button */}
           {!isSubmitted && (
             <div className="flex justify-between items-center border-t pt-4 gap-2 flex-wrap">
               <button
@@ -265,7 +279,7 @@ export default function ExamPage() {
 
         {/* Right Column: Question Palette */}
         <div className="bg-white rounded-lg p-5 shadow-sm border h-fit space-y-4">
-          <h3 className="font-bold text-gray-800 text-sm">Question Navigation</h3>
+          <h3 className="font-bold text-gray-800 text-sm">Question Palette</h3>
           <div className="grid grid-cols-5 gap-2">
             {questions.map((q, idx) => {
               const isAnswered = selectedAnswers[idx] !== undefined;
